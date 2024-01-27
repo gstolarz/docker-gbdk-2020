@@ -1,28 +1,41 @@
-FROM ubuntu AS build
+ARG SDCC_VERSION=4.3.0
+ARG SDCC_ROOT=/opt/sdcc
+
+ARG GBDK_2020_VERSION=4.2.0
+ARG GBDK_2020_ROOT=/opt/gbdk
+
+FROM ubuntu:latest AS build
+
+ARG SDCC_VERSION
+ARG SDCC_ROOT
+
+ARG GBDK_2020_VERSION
+ARG GBDK_2020_ROOT
 
 RUN apt-get update \
-  && DEBIAN_FRONTEND=noninteractive apt-get install -y \
-    bison flex g++ libboost-dev libz-dev make texinfo wget \
+  && apt-get install -y \
+    bison bzip2 flex g++ libboost-dev libz-dev make patch texinfo wget \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /usr/src
 
-ARG SDCC_VERSION=4.1.0
-ARG GBDK_2020_VERSION=4.0.3
-
 RUN wget https://sourceforge.net/projects/sdcc/files/sdcc/${SDCC_VERSION}/sdcc-src-${SDCC_VERSION}.tar.bz2 \
-  && tar xfj sdcc-src-${SDCC_VERSION}.tar.bz2 \
-  && cd sdcc \
+  && wget https://github.com/gbdk-2020/gbdk-2020-sdcc/releases/download/patches/gbdk-4.2-nes_banked_nonbanked_v4_combined.diff.patch \
+  && tar xf sdcc-src-${SDCC_VERSION}.tar.bz2 \
+  && cd sdcc-${SDCC_VERSION} \
+  && patch -p0 < ../gbdk-4.2-nes_banked_nonbanked_v4_combined.diff.patch \
   && mkdir build \
   && cd build \
   && ../configure \
-    --prefix=/opt/sdcc \
+    --prefix=$SDCC_ROOT \
+    --disable-shared \
     --disable-mcs51-port \
-    --disable-z80-port \
+    --enable-z80-port \
     --disable-z180-port \
     --disable-r2k-port \
     --disable-r2ka-port \
     --disable-r3ka-port \
+    --enable-sm83-port \
     --disable-tlcs90-port \
     --disable-ez80_z80-port \
     --disable-z80n-port \
@@ -37,24 +50,31 @@ RUN wget https://sourceforge.net/projects/sdcc/files/sdcc/${SDCC_VERSION}/sdcc-s
     --disable-pdk14-port \
     --disable-pdk15-port \
     --disable-pdk16-port \
+    --enable-mos6502-port \
+    --disable-mos65c02-port \
+    --disable-ucsim \
+    --disable-device-lib \
+    --disable-doc \
   && make \
   && make install \
-  && find /opt/sdcc/bin -type f ! -name as2gbmap -perm /a=x -exec strip {} \;
+  && find $SDCC_ROOT/bin -type f ! -name as2gbmap -perm /a=x -exec strip {} \;
 
 RUN wget https://github.com/gbdk-2020/gbdk-2020/archive/refs/tags/${GBDK_2020_VERSION}.tar.gz -O gbdk-2020-${GBDK_2020_VERSION}.tar.gz \
-  && tar xfz gbdk-2020-${GBDK_2020_VERSION}.tar.gz \
+  && tar xf gbdk-2020-${GBDK_2020_VERSION}.tar.gz \
   && cd gbdk-2020-${GBDK_2020_VERSION} \
-  && SDCCDIR=/opt/sdcc make \
-  && SDCCDIR=/opt/sdcc make install \
-  && find /opt/gbdk/bin -type f -perm /a=x -exec strip {} \;
+  && make SDCCDIR=$SDCC_ROOT TARGETDIR=$GBDK_2020_ROOT \
+  && make SDCCDIR=$SDCC_ROOT TARGETDIR=$GBDK_2020_ROOT install \
+  && find $GBDK_2020_ROOT/bin -type f -perm /a=x -exec strip {} \;
 
-FROM ubuntu
+FROM ubuntu:latest
+
+ARG GBDK_2020_ROOT
 
 RUN apt-get update \
   && apt-get install -y make \
   && rm -rf /var/lib/apt/lists/*
 
-COPY --from=build /opt/gbdk /opt/gbdk
-COPY --from=build /opt/sdcc /opt/sdcc
-ENV PATH /opt/gbdk/bin:$PATH
+COPY --from=build $GBDK_2020_ROOT $GBDK_2020_ROOT
+
+ENV PATH $GBDK_2020_ROOT/bin:$PATH
 WORKDIR /workdir
